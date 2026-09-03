@@ -60,6 +60,30 @@ app.MapGet("/me-this-month", async () =>
     return Results.Ok(decimal.ToInt32(decimal.Floor(spend)));
 });
 
+app.MapGet("/ai-credits-used", async () =>
+{
+    var today = DateTime.UtcNow;
+    var percentUsed = await GetAiCreditsPercentUsedAsync(http, json, org, today.Year, today.Month);
+
+    Console.WriteLine($"AI credits used: {percentUsed:F1}%");
+    return Results.Ok(percentUsed);
+});
+
+app.MapGet("/ai-credits-used-traffic-light", async () =>
+{
+    var today = DateTime.UtcNow;
+    var percentUsed = await GetAiCreditsPercentUsedAsync(http, json, org, today.Year, today.Month);
+    var trafficLight = percentUsed <= 33m
+        ? 0
+        : percentUsed < 67m
+            ? 1
+            : percentUsed < 100m
+                ? 2
+                : 3;
+
+    return Results.Ok(trafficLight);
+});
+
 await app.RunAsync();
 return 0;
 
@@ -73,6 +97,52 @@ static async Task<decimal> GetSpendAsync(HttpClient http, JsonSerializerOptions 
     }
 
     return total;
+}
+
+static async Task<decimal> GetAiCreditsUsedAsync(HttpClient http, JsonSerializerOptions json, string org, int year, int month)
+{
+    var url = $"organizations/{Uri.EscapeDataString(org)}/settings/billing/ai_credit/usage?year={year}&month={month}";
+    var report = await GetJsonAsync<UsageReport>(http, json, url);
+    return report.UsageItems?.Sum(item => item.GrossQuantity) ?? 0;
+}
+
+static async Task<decimal> GetAiCreditsPercentUsedAsync(HttpClient http, JsonSerializerOptions json, string org, int year, int month)
+{
+    var usedCredits = await GetAiCreditsUsedAsync(http, json, org, year, month);
+    var copilotBilling = await GetCopilotBillingAsync(http, json, org);
+    var totalSeats = copilotBilling.SeatBreakdown?.Total ?? 0;
+    var planType = copilotBilling.PlanType;
+    var creditsPerSeat = planType?.ToLowerInvariant() switch
+    {
+        "business" => 1900m,
+        "enterprise" => 3900m,
+        _ => throw new InvalidOperationException($"Unsupported Copilot plan type: {planType}")
+    };
+    var includedCredits = totalSeats * creditsPerSeat;
+
+    // Assumes this organization's seats represent its effective AI credit pool.
+    return includedCredits == 0
+        ? 0
+        : usedCredits / includedCredits * 100m;
+}
+
+static async Task<CopilotBilling> GetCopilotBillingAsync(HttpClient http, JsonSerializerOptions json, string org)
+{
+    var url = $"orgs/{Uri.EscapeDataString(org)}/copilot/billing";
+    return await GetJsonAsync<CopilotBilling>(http, json, url);
+}
+
+static async Task<T> GetJsonAsync<T>(HttpClient http, JsonSerializerOptions json, string url)
+{
+    using var response = await http.GetAsync(url);
+    if (!response.IsSuccessStatusCode)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        throw new InvalidOperationException($"GET {url} failed with {(int)response.StatusCode}: {body}");
+    }
+
+    return await response.Content.ReadFromJsonAsync<T>(json)
+        ?? throw new InvalidOperationException($"GET {url} returned an empty response body.");
 }
 
 static async Task<decimal> GetMeterNetAmountAsync(HttpClient http, JsonSerializerOptions json, string org, string meter, string? user, int year, int month, int? day)
@@ -112,9 +182,16 @@ sealed record Account([property: JsonPropertyName("login")] string? Login);
 
 sealed record UsageReport([property: JsonPropertyName("usageItems")] List<UsageItem>? UsageItems);
 
+sealed record CopilotBilling(
+    [property: JsonPropertyName("seat_breakdown")] CopilotSeatBreakdown? SeatBreakdown,
+    [property: JsonPropertyName("plan_type")] string? PlanType);
+
+sealed record CopilotSeatBreakdown([property: JsonPropertyName("total")] decimal Total);
+
 sealed record UsageItem(
     [property: JsonPropertyName("product")] string? Product,
     [property: JsonPropertyName("sku")] string? Sku,
+    [property: JsonPropertyName("grossQuantity")] decimal GrossQuantity,
     [property: JsonPropertyName("grossAmount")] decimal GrossAmount,
     [property: JsonPropertyName("discountAmount")] decimal DiscountAmount,
     [property: JsonPropertyName("netAmount")] decimal NetAmount);
