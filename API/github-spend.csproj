@@ -7,7 +7,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationIcon>gh-s-icon-dollar-eyes.ico</ApplicationIcon>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests\**</DefaultItemExcludes>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="github-spend.Tests" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Azure.Data.Tables" Version="12.11.0" />
