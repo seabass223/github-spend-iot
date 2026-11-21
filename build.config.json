@@ -1,0 +1,18 @@
+{
+  "protocolVersion": 8,
+  "name": "github-spend",
+  "displayName": "AI Spend",
+  "type": "dotnet",
+  "exe": "AI Spend.exe",
+  "targets": ["app"],
+  "dotnet": {
+    "project": "API/github-spend.csproj",
+    "tests": ["API/tests/github-spend.Tests/github-spend.Tests.csproj"],
+    "console": true
+  },
+  "firmware": {
+    "platform": "photon",
+    "sketches": ["IOT/photon_lcd_hello_world.ino"]
+  },
+  "pin": { "enabled": true, "folder": "Dev Tools", "icon": "API/lcd-usage.ico" }
+}
